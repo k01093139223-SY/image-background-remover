@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
+// Enable Edge Runtime for Cloudflare Pages
+export const runtime = 'edge';
+
 // Remove.bg API configuration
 const REMOVE_BG_API_URL = "https://api.remove.bg/v1.0/removebg";
 const API_KEY = process.env.REMOVE_BG_API_KEY;
@@ -31,7 +34,7 @@ export async function POST(request: NextRequest) {
       headers: {
         "X-Api-Key": API_KEY || "",
       },
-      body: formData as any,
+      body: formData,
     });
 
     if (!response.ok) {

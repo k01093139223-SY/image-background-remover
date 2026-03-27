@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import Image from "next/image";
 
 export default function Home() {
   const [originalImage, setOriginalImage] = useState<string | null>(null);
