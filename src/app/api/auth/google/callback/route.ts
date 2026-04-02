@@ -56,24 +56,28 @@ export async function GET(request: NextRequest) {
 
     const user = await userResponse.json();
 
-    // 3. 存储或更新用户到 D1
-    const db = getD1Database();
-    if (db) {
-      await db.prepare(`
-        INSERT INTO users (google_id, email, name, avatar_url)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(google_id) DO UPDATE SET 
-          email = excluded.email,
-          name = excluded.name,
-          avatar_url = excluded.avatar_url,
-          updated_at = datetime('now')
-      `).bind(user.id, user.email, user.name, user.picture).run();
+    // 3. 尝试存储用户到 D1（如果绑定存在）
+    try {
+      const db = getD1Database();
+      if (db) {
+        await db.prepare(`
+          INSERT INTO users (google_id, email, name, avatar_url)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(google_id) DO UPDATE SET 
+            email = excluded.email,
+            name = excluded.name,
+            avatar_url = excluded.avatar_url,
+            updated_at = datetime('now')
+        `).bind(user.id, user.email, user.name, user.picture).run();
+      }
+    } catch (dbError) {
+      console.warn("D1 not available, skipping user存储:", dbError);
     }
 
     // 4. 设置 cookie 并跳转回首页
     const response = NextResponse.redirect(new URL("/", request.url) + "?logged_in=true");
     
-    // 设置会话 cookie (简化版本，生产环境建议用 JWT)
+    // 设置会话 cookie
     response.cookies.set("user_session", JSON.stringify({
       google_id: user.id,
       email: user.email,
