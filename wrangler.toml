@@ -4,10 +4,15 @@ pages_build_output_dir = ".next"
 
 compatibility_flags = ["nodejs_compat"]
 
+# D1 数据库绑定
+[[d1_databases]]
+binding = "DB"
+database_name = "image-background-remover-db"
+database_id = "YOUR_D1_DATABASE_ID_HERE"
+
 [env.production]
 vars = { REMOVE_BG_API_KEY = "A9ZxNQtqf6BBSSjMo7EuGibx" }
 
-# OAuth 配置通过 Cloudflare Pages 环境变量设置
-# 在 Cloudflare Dashboard → Settings → Environment Variables 中配置：
+# OAuth 配置通过 Cloudflare Pages 环境变量设置：
 # GOOGLE_CLIENT_ID
 # GOOGLE_CLIENT_SECRET

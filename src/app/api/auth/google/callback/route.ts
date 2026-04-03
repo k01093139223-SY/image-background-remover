@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getD1Database } from "../../../../lib/db";
+import { getCookie, createCookie } from "./cookies";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(request: NextRequest) {
+interface Env {
+  DB: D1Database;
+  GOOGLE_CLIENT_ID: string;
+  GOOGLE_CLIENT_SECRET: string;
+}
+
+export async function GET(request: NextRequest, context: { params: Promise<{ [key: string]: string }> }) {
   const code = request.nextUrl.searchParams.get("code");
   const error = request.nextUrl.searchParams.get("error");
 
@@ -15,6 +21,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL("/", request.url) + "?error=no_code");
   }
 
+  // 获取环境变量
   const googleClientId = process.env.GOOGLE_CLIENT_ID;
   const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
   const redirectUri = `${request.nextUrl.origin}/api/auth/google/callback`;
@@ -56,34 +63,54 @@ export async function GET(request: NextRequest) {
 
     const user = await userResponse.json();
 
-    // 3. 尝试存储用户到 D1（如果绑定存在）
+    // 3. 保存或更新用户到 D1 数据库
+    // 注意：在 Edge Runtime 中通过 context.env 获取 D1 绑定
+    let userId: string;
+    
     try {
-      const db = getD1Database();
-      if (db) {
-        await db.prepare(`
-          INSERT INTO users (google_id, email, name, avatar_url)
-          VALUES (?, ?, ?, ?)
-          ON CONFLICT(google_id) DO UPDATE SET 
-            email = excluded.email,
-            name = excluded.name,
-            avatar_url = excluded.avatar_url,
-            updated_at = datetime('now')
-        `).bind(user.id, user.email, user.name, user.picture).run();
+      // 尝试获取 D1 绑定（仅在 Cloudflare 运行时可用）
+      const env = context.params as unknown as Env;
+      
+      if (env.DB) {
+        // 检查用户是否已存在
+        const existingUser = await env.DB.prepare(
+          "SELECT id FROM users WHERE google_id = ?"
+        ).bind(user.id).first();
+
+        if (existingUser) {
+          // 更新最后登录时间
+          await env.DB.prepare(
+            "UPDATE users SET last_login = datetime('now') WHERE google_id = ?"
+          ).bind(user.id).run();
+          userId = existingUser.id as string;
+        } else {
+          // 创建新用户
+          const result = await env.DB.prepare(
+            "INSERT INTO users (google_id, email, name, avatar_url, created_at, last_login) VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))"
+          ).bind(user.id, user.email, user.name, user.picture).run();
+          userId = result.meta?.last_insert_rowid?.toString() || user.id;
+        }
+      } else {
+        // 本地开发或 D1 未配置时使用默认 ID
+        userId = user.id;
       }
-    } catch (dbError) {
-      console.warn("D1 not available, skipping user存储:", dbError);
+    } catch (d1Error) {
+      console.error("D1 error:", d1Error);
+      userId = user.id; // 回退到使用 Google ID
     }
 
-    // 4. 设置 cookie 并跳转回首页
-    const response = NextResponse.redirect(new URL("/", request.url) + "?logged_in=true");
-    
-    // 设置会话 cookie
-    response.cookies.set("user_session", JSON.stringify({
+    // 4. 设置会话 cookie（包含 D1 用户 ID）
+    const sessionData = {
+      user_id: userId,
       google_id: user.id,
       email: user.email,
       name: user.name,
       avatar_url: user.picture,
-    }), {
+    };
+
+    const response = NextResponse.redirect(new URL("/", request.url) + "?logged_in=true");
+    
+    response.cookies.set("user_session", JSON.stringify(sessionData), {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
