@@ -8,7 +8,7 @@ compatibility_flags = ["nodejs_compat"]
 [[d1_databases]]
 binding = "DB"
 database_name = "image-background-remover-db"
-database_id = "YOUR_D1_DATABASE_ID_HERE"
+database_id = "3b374ea7-f2c3-41e0-be05-f410344fed9e"
 
 [env.production]
 vars = { REMOVE_BG_API_KEY = "A9ZxNQtqf6BBSSjMo7EuGibx" }

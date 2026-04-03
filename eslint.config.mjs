@@ -17,6 +17,8 @@ const eslintConfig = defineConfig([
     rules: {
       // Allow img elements for simplicity (base64 images)
       "@next/next/no-img-element": "off",
+      // Allow any for Cloudflare bindings
+      "@typescript-eslint/no-explicit-any": "off",
     },
   },
 ]);

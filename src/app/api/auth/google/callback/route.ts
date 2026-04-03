@@ -1,15 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCookie, createCookie } from "./cookies";
 
 export const dynamic = "force-dynamic";
 
-interface Env {
-  DB: D1Database;
-  GOOGLE_CLIENT_ID: string;
-  GOOGLE_CLIENT_SECRET: string;
-}
-
-export async function GET(request: NextRequest, context: { params: Promise<{ [key: string]: string }> }) {
+export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get("code");
   const error = request.nextUrl.searchParams.get("error");
 
@@ -21,7 +14,6 @@ export async function GET(request: NextRequest, context: { params: Promise<{ [ke
     return NextResponse.redirect(new URL("/", request.url) + "?error=no_code");
   }
 
-  // 获取环境变量
   const googleClientId = process.env.GOOGLE_CLIENT_ID;
   const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
   const redirectUri = `${request.nextUrl.origin}/api/auth/google/callback`;
@@ -64,42 +56,37 @@ export async function GET(request: NextRequest, context: { params: Promise<{ [ke
     const user = await userResponse.json();
 
     // 3. 保存或更新用户到 D1 数据库
-    // 注意：在 Edge Runtime 中通过 context.env 获取 D1 绑定
+    // D1 binding 由 Cloudflare runtime 注入
+    const db = (process.env as any).DB;
     let userId: string;
     
     try {
-      // 尝试获取 D1 绑定（仅在 Cloudflare 运行时可用）
-      const env = context.params as unknown as Env;
-      
-      if (env.DB) {
+      if (db) {
         // 检查用户是否已存在
-        const existingUser = await env.DB.prepare(
+        const existingUser = await db.prepare(
           "SELECT id FROM users WHERE google_id = ?"
         ).bind(user.id).first();
 
         if (existingUser) {
-          // 更新最后登录时间
-          await env.DB.prepare(
+          await db.prepare(
             "UPDATE users SET last_login = datetime('now') WHERE google_id = ?"
           ).bind(user.id).run();
-          userId = existingUser.id as string;
+          userId = String(existingUser.id);
         } else {
-          // 创建新用户
-          const result = await env.DB.prepare(
+          const result = await db.prepare(
             "INSERT INTO users (google_id, email, name, avatar_url, created_at, last_login) VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))"
           ).bind(user.id, user.email, user.name, user.picture).run();
-          userId = result.meta?.last_insert_rowid?.toString() || user.id;
+          userId = result.meta?.last_insert_rowid ? String(result.meta.last_insert_rowid) : user.id;
         }
       } else {
-        // 本地开发或 D1 未配置时使用默认 ID
         userId = user.id;
       }
     } catch (d1Error) {
       console.error("D1 error:", d1Error);
-      userId = user.id; // 回退到使用 Google ID
+      userId = user.id;
     }
 
-    // 4. 设置会话 cookie（包含 D1 用户 ID）
+    // 4. 设置会话 cookie
     const sessionData = {
       user_id: userId,
       google_id: user.id,
@@ -114,7 +101,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ [ke
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
-      maxAge: 60 * 60 * 24 * 30, // 30 天
+      maxAge: 60 * 60 * 24 * 30,
       path: "/",
     });
 
