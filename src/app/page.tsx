@@ -20,13 +20,25 @@ export default function Home() {
 
   // 检查用户登录状态
   useEffect(() => {
+    // 检查 URL 参数
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('logged_in') === '1') {
+      console.log("logged_in=1 detected in URL");
+    }
+    
     const sessionCookie = document.cookie
       .split("; ")
       .find((row) => row.startsWith("user_session="));
     
     if (sessionCookie) {
       try {
-        const userData = JSON.parse(decodeURIComponent(sessionCookie.split("=")[1]));
+        let cookieValue = sessionCookie.split("=")[1];
+        // 尝试解码
+        try {
+          cookieValue = decodeURIComponent(cookieValue);
+        } catch (e) {}
+        const userData = JSON.parse(cookieValue);
+        console.log("User data from cookie:", userData);
         setUser(userData);
       } catch (e) {
         console.error("Failed to parse user session:", e);
@@ -151,15 +163,20 @@ export default function Home() {
           </div>
           {user ? (
             <div className="flex items-center gap-3">
-              <img 
-                src={user.avatar_url} 
-                alt={user.name}
-                className="w-10 h-10 rounded-full"
-              />
-              <div>
-                <p className="text-sm font-medium text-gray-900">{user.name}</p>
-                <p className="text-xs text-gray-500">{user.email}</p>
-              </div>
+              <button 
+                onClick={() => window.location.href = "/profile"}
+                className="flex items-center gap-2 hover:bg-gray-100 rounded-lg p-1"
+              >
+                <img 
+                  src={user.avatar_url} 
+                  alt={user.name}
+                  className="w-10 h-10 rounded-full"
+                />
+                <div>
+                  <p className="text-sm font-medium text-gray-900">{user.name}</p>
+                  <p className="text-xs text-gray-500">{user.email}</p>
+                </div>
+              </button>
               <button
                 onClick={handleLogout}
                 className="ml-2 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50"
@@ -168,12 +185,20 @@ export default function Home() {
               </button>
             </div>
           ) : (
-            <button
-              onClick={handleLogin}
-              className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              登录
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => window.location.href = "/pricing"}
+                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900"
+              >
+                定价
+              </button>
+              <button
+                onClick={handleLogin}
+                className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                登录
+              </button>
+            </div>
           )}
         </div>
       </header>

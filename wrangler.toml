@@ -1,6 +1,6 @@
 name = "image-background-remover"
 compatibility_date = "2026-03-27"
-pages_build_output_dir = ".next"
+pages_build_output_dir = ".vercel/output/static"
 
 compatibility_flags = ["nodejs_compat"]
 
@@ -10,9 +10,7 @@ binding = "DB"
 database_name = "image-background-remover-db"
 database_id = "3b374ea7-f2c3-41e0-be05-f410344fed9e"
 
-[env.production]
-vars = { REMOVE_BG_API_KEY = "A9ZxNQtqf6BBSSjMo7EuGibx" }
-
-# OAuth 配置通过 Cloudflare Pages 环境变量设置：
-# GOOGLE_CLIENT_ID
-# GOOGLE_CLIENT_SECRET
+# 环境变量在 Cloudflare Dashboard 配置：
+# - GOOGLE_CLIENT_ID
+# - GOOGLE_CLIENT_SECRET
+# - REMOVE_BG_API_KEY

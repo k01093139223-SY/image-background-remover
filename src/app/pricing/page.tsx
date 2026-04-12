@@ -1,122 +1,227 @@
+/* eslint-disable react-hooks/set-state-in-effect */
+/* eslint-disable react-hooks/immutability */
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 
-interface PricingPlan {
-  id: string;
-  name: string;
-  price: number;
-  priceUnit: string;
-  features: string[];
-  isPopular?: boolean;
-  buttonText: string;
+declare global {
+  interface Window {
+    paypal?: {
+      Buttons: (config: any) => any;
+    };
+  }
 }
 
-const creditPackages = [
+const CREDIT_PACKAGES = [
   { 
     id: "starter", 
     name: "Starter", 
     credits: 50, 
     price: 4.99, 
-    features: ["50 积分", "适合偶尔使用", "永久有效"],
+    priceId: "P-2RJ23456A12345678",
+    features: ["50 Credits", "Perfect for occasional use", "Permanent"],
     isPopular: false,
   },
   { 
     id: "popular", 
     name: "Popular", 
     credits: 150, 
-    price: 12.99, 
-    features: ["150 积分", "适合日常使用", "永久有效", "额外送10积分"],
+    price: 12.99,
+    priceId: "P-5AB23456A12345679", 
+    features: ["150 Credits", "Ideal for daily use", "Permanent", "Extra 10 Credits"],
     isPopular: true,
   },
   { 
     id: "pro", 
     name: "Pro", 
     credits: 500, 
-    price: 29.99, 
-    features: ["500 积分", "适合商业使用", "永久有效", "额外送50积分"],
+    price: 29.99,
+    priceId: "P-8CD23456A12345680", 
+    features: ["500 Credits", "Great for business", "Permanent", "Extra 50 Credits"],
     isPopular: false,
   },
 ];
 
-const subscriptionPlans = [
+const SUBSCRIPTION_PLANS = [
   {
     id: "basic",
     name: "Basic",
     price: 9.99,
-    priceUnit: "/月",
+    priceUnit: "/month",
+    priceId: "P-2AB34567C89012345",
     features: [
-      "每日 50 次处理",
-      "优先处理队列",
-      "Email 支持",
+      "50 daily requests",
+      "Priority queue",
+      "Email support",
     ],
-    buttonText: "立即订阅",
+    isPopular: false,
   },
   {
     id: "pro",
     name: "Pro",
     price: 19.99,
-    priceUnit: "/月",
+    priceUnit: "/month",
+    priceId: "P-5CD34567E89012346",
     features: [
-      "无限次处理",
-      "最高优先级",
-      "7x24 客服支持",
-      "无广告",
-      "API 访问权限",
+      "Unlimited requests",
+      "Highest priority",
+      "7x24 priority support",
+      "No ads",
+      "API access",
     ],
     isPopular: true,
-    buttonText: "立即订阅",
   },
 ];
 
-const faqItems = [
-  {
-    question: "积分会过期吗？",
-    answer: "积分永久有效，可随时使用。订阅用户的每日免费次数仅当日有效。"
-  },
-  {
-    question: "可以取消订阅吗？",
-    answer: "可以随时取消，取消后套餐有效期至到期日，到期后自动降级为免费版。"
-  },
-  {
-    question: "如何支付？",
-    answer: "支持 PayPal、微信、支付宝等主流支付方式。"
-  },
-  {
-    question: "处理失败会扣次数吗？",
-    answer: "不会。只有成功处理的图片才会扣除次数或积分。"
-  },
-  {
-    question: "免费版可以做什么？",
-    answer: "每日可免费处理 10 张图片，注册即送 3 积分。积分用完后仍可使用每日免费次数。"
-  },
-  {
-    question: "支持批量处理吗？",
-    answer: "Pro 订阅用户支持 API 批量调用，具体请联系客服。"
-  },
+const FAQ_ITEMS = [
+  { question: "Do credits expire?", answer: "Credits are permanent and can be used anytime. Free daily quota resets every day." },
+  { question: "Can I cancel my subscription?", answer: "You can cancel anytime. Your plan remains active until expiration, then automatically downgrades to free." },
+  { question: "How to pay?", answer: "Supports PayPal and other major payment methods." },
+  { question: "Does failed processing count towards quota?", answer: "No. Only successfully processed images count towards your quota." },
+  { question: "What can the free plan do?", answer: "Free plan includes 10 images/day. New users get 3 credits. You can also use your daily free quota after credits run out." },
+  { question: "Do you support batch processing?", answer: "Pro subscribers get API batch access. Contact support for details." },
 ];
+
+const PAYPAL_CLIENT_ID = "ATlkCMuWeU99BRfOraUpjjpxk52N-HUFp9TpsPPhBhkF0lVRKDa9lgwmgBY4ltOsScJbxkyOCnVI-SuG";
 
 export default function PricingPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<"credits" | "subscription">("credits");
   const [openFaq, setOpenFaq] = useState<number | null>(null);
   const [user, setUser] = useState<any>(null);
+  const [processingPayment, setProcessingPayment] = useState<string | null>(null);
+  const [paymentSuccess, setPaymentSuccess] = useState(false);
+  const buttonsRendered = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    fetchUserInfo();
+    // Load PayPal SDK
+    const script = document.createElement('script');
+    script.src = `https://www.paypal.com/sdk/js?client-id=${PAYPAL_CLIENT_ID}&currency=USD&intent=capture`;
+    script.async = true;
+    document.body.appendChild(script);
+
+    fetch("/api/profile")
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => {
+        if (data) setUser(data);
+      })
+      .catch(() => {});
   }, []);
 
-  const fetchUserInfo = async () => {
-    try {
-      const res = await fetch("/api/profile");
-      if (res.ok) {
-        const data = await res.json();
-        setUser(data);
+  // Render PayPal buttons when tab changes
+  useEffect(() => {
+    // Clear rendered state when tab changes so buttons can re-render
+    buttonsRendered.current.clear();
+    
+    const timer = setTimeout(() => {
+      if (activeTab === "credits") {
+        renderCreditButtons();
+      } else {
+        renderSubscriptionButtons();
       }
-    } catch (error) {
-      console.error("Failed to fetch user:", error);
-    }
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [activeTab]);
+
+  const renderCreditButtons = () => {
+    CREDIT_PACKAGES.forEach((pkg) => {
+      const containerId = `paypal-button-${pkg.id}`;
+      const container = document.getElementById(containerId);
+      
+      if (container && container.children.length === 0 && !buttonsRendered.current.has(`credit-${pkg.id}`)) {
+        buttonsRendered.current.add(`credit-${pkg.id}`);
+        
+        if (window.paypal) {
+          window.paypal.Buttons({
+            style: { layout: "vertical", color: "blue", shape: "rect", label: "pay" },
+            createOrder: async () => {
+              const response = await fetch("/api/paypal/create-order", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  productType: "credits",
+                  packageId: pkg.id,
+                  credits: pkg.credits,
+                  price: pkg.price,
+                  priceId: pkg.priceId,
+                }),
+              });
+              const order = await response.json();
+              return order.id;
+            },
+            onApprove: async (data: any) => {
+              setProcessingPayment(pkg.id);
+              const response = await fetch("/api/paypal/capture-order", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ orderId: data.orderID, productType: "credits", packageId: pkg.id }),
+              });
+              const result = await response.json();
+              setProcessingPayment(null);
+              if (result.success) {
+                setPaymentSuccess(true);
+                setTimeout(() => setPaymentSuccess(false), 3000);
+              }
+            },
+            onError: () => {
+              setProcessingPayment(null);
+              alert("Payment failed. Please try again.");
+            },
+          }).render(`#${containerId}`);
+        }
+      }
+    });
+  };
+
+  const renderSubscriptionButtons = () => {
+    SUBSCRIPTION_PLANS.forEach((plan) => {
+      const containerId = `paypal-sub-${plan.id}`;
+      const container = document.getElementById(containerId);
+      
+      if (container && container.children.length === 0 && !buttonsRendered.current.has(`sub-${plan.id}`)) {
+        buttonsRendered.current.add(`sub-${plan.id}`);
+        
+        if (window.paypal) {
+          window.paypal.Buttons({
+            style: { layout: "vertical", color: "blue", shape: "rect", label: "pay" },
+            createSubscription: async () => {
+              const response = await fetch("/api/paypal/create-subscription", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  productType: "subscription",
+                  planId: plan.id,
+                  planName: plan.name,
+                  price: plan.price,
+                  priceId: plan.priceId,
+                }),
+              });
+              const sub = await response.json();
+              return sub.id;
+            },
+            onApprove: async (data: any) => {
+              setProcessingPayment(plan.id);
+              const response = await fetch("/api/paypal/activate-subscription", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ subscriptionId: data.subscriptionID, planId: plan.id }),
+              });
+              const result = await response.json();
+              setProcessingPayment(null);
+              if (result.success) {
+                setPaymentSuccess(true);
+                setTimeout(() => setPaymentSuccess(false), 3000);
+              }
+            },
+            onError: () => {
+              setProcessingPayment(null);
+              alert("Subscription failed. Please try again.");
+            },
+          }).render(`#${containerId}`);
+        }
+      }
+    });
   };
 
   const toggleFaq = (index: number) => {
@@ -125,7 +230,12 @@ export default function PricingPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100">
-      {/* Header */}
+      {paymentSuccess && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg z-50">
+          ✅ Payment successful! Your credits have been added.
+        </div>
+      )}
+
       <header className="bg-white shadow-sm">
         <div className="max-w-6xl mx-auto px-4 py-4 flex justify-between items-center">
           <div>
@@ -133,192 +243,97 @@ export default function PricingPage() {
             <p className="text-sm text-gray-500">AI-powered background removal</p>
           </div>
           <div className="flex gap-3">
-            <button
-              onClick={() => router.push("/")}
-              className="px-4 py-2 text-gray-600 hover:text-gray-900"
-            >
-              ← 返回
-            </button>
+            <button onClick={() => router.push("/")} className="px-4 py-2 text-gray-600 hover:text-gray-900">← Back</button>
             {user?.user ? (
-              <button
-                onClick={() => router.push("/profile")}
-                className="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200"
-              >
-                个人中心
-              </button>
+              <button onClick={() => router.push("/profile")} className="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200">My Profile</button>
             ) : (
-              <button
-                onClick={() => router.push("/api/auth/google")}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-              >
-                登录
-              </button>
+              <button onClick={() => router.push("/api/auth/google")} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Login</button>
             )}
           </div>
         </div>
       </header>
 
       <main className="max-w-5xl mx-auto px-4 py-12">
-        {/* 标题 */}
         <div className="text-center mb-8">
-          <h2 className="text-4xl font-bold text-gray-900 mb-4">选择适合您的方案</h2>
-          <p className="text-lg text-gray-600">
-            按需选择积分包或订阅计划（美元定价）
-          </p>
+          <h2 className="text-4xl font-bold text-gray-900 mb-4">Choose Your Plan</h2>
+          <p className="text-lg text-gray-600">Select credit packs or subscription plans (USD pricing)</p>
+          <p className="text-sm text-yellow-600 mt-2">🔒 Sandbox Mode - Test payments with PayPal</p>
         </div>
 
-        {/* Tab 切换 */}
         <div className="flex justify-center mb-10">
           <div className="bg-white rounded-xl p-1 shadow-sm inline-flex">
-            <button
-              onClick={() => setActiveTab("credits")}
-              className={`px-8 py-3 rounded-lg font-medium transition-all ${
-                activeTab === "credits"
-                  ? "bg-blue-600 text-white"
-                  : "text-gray-600 hover:text-gray-900"
-              }`}
-            >
-              💎 积分包
+            <button onClick={() => setActiveTab("credits")} className={`px-8 py-3 rounded-lg font-medium transition-all ${activeTab === "credits" ? "bg-blue-600 text-white" : "text-gray-600 hover:text-gray-900"}`}>
+              💎 Credit Packs
             </button>
-            <button
-              onClick={() => setActiveTab("subscription")}
-              className={`px-8 py-3 rounded-lg font-medium transition-all ${
-                activeTab === "subscription"
-                  ? "bg-blue-600 text-white"
-                  : "text-gray-600 hover:text-gray-900"
-              }`}
-            >
-              📅 订阅计划
+            <button onClick={() => setActiveTab("subscription")} className={`px-8 py-3 rounded-lg font-medium transition-all ${activeTab === "subscription" ? "bg-blue-600 text-white" : "text-gray-600 hover:text-gray-900"}`}>
+              📅 Subscription Plans
             </button>
           </div>
         </div>
 
-        {/* 积分包 */}
         {activeTab === "credits" && (
           <div className="grid md:grid-cols-3 gap-6 mb-16">
-            {creditPackages.map((pkg) => (
-              <div
-                key={pkg.id}
-                className={`bg-white rounded-2xl shadow-lg p-6 flex flex-col ${
-                  pkg.isPopular ? "ring-4 ring-blue-500 ring-opacity-50" : ""
-                }`}
-              >
-                {pkg.isPopular && (
-                  <div className="bg-blue-500 text-white text-center py-1 px-4 rounded-full text-sm font-medium -mx-6 -mt-6 mb-4">
-                    最受欢迎
-                  </div>
-                )}
-                
+            {CREDIT_PACKAGES.map((pkg) => (
+              <div key={pkg.id} className={`bg-white rounded-2xl shadow-lg p-6 flex flex-col ${pkg.isPopular ? "ring-4 ring-blue-500 ring-opacity-50" : ""}`}>
+                {pkg.isPopular && <div className="bg-blue-500 text-white text-center py-1 px-4 rounded-full text-sm font-medium -mx-6 -mt-6 mb-4">Most Popular</div>}
                 <h3 className="text-xl font-bold text-gray-900 mb-2">{pkg.name}</h3>
-                <div className="mb-4">
-                  <span className="text-3xl font-bold text-gray-900">${pkg.price}</span>
-                </div>
-                
+                <div className="mb-4"><span className="text-3xl font-bold text-gray-900">${pkg.price}</span></div>
                 <ul className="space-y-2 mb-6 flex-grow">
-                  {pkg.features.map((feature, index) => (
-                    <li key={index} className="flex items-center text-gray-600 text-sm">
-                      <span className="text-green-500 mr-2">✓</span>
-                      {feature}
-                    </li>
-                  ))}
+                  {pkg.features.map((feature, i) => (<li key={i} className="flex items-center text-gray-600 text-sm"><span className="text-green-500 mr-2">✓</span>{feature}</li>))}
                 </ul>
-                
-                <button
-                  className="w-full py-3 rounded-lg font-medium bg-gray-900 text-white hover:bg-gray-800 transition-colors"
-                >
-                  Payment coming soon
-                </button>
+                <div id={`paypal-button-${pkg.id}`} className="min-h-10">
+                  {processingPayment === pkg.id ? (
+                    <div className="text-center text-sm text-gray-500">Processing...</div>
+                  ) : null}
+                </div>
               </div>
             ))}
           </div>
         )}
 
-        {/* 订阅计划 */}
         {activeTab === "subscription" && (
           <div className="grid md:grid-cols-2 gap-6 mb-16 max-w-3xl mx-auto">
-            {subscriptionPlans.map((plan) => (
-              <div
-                key={plan.id}
-                className={`bg-white rounded-2xl shadow-lg p-8 flex flex-col ${
-                  plan.isPopular ? "ring-4 ring-blue-500 ring-opacity-50" : ""
-                }`}
-              >
-                {plan.isPopular && (
-                  <div className="bg-blue-500 text-white text-center py-1 px-4 rounded-full text-sm font-medium -mx-8 -mt-8 mb-4">
-                    最受欢迎
-                  </div>
-                )}
-                
+            {SUBSCRIPTION_PLANS.map((plan) => (
+              <div key={plan.id} className={`bg-white rounded-2xl shadow-lg p-8 flex flex-col ${plan.isPopular ? "ring-4 ring-blue-500 ring-opacity-50" : ""}`}>
+                {plan.isPopular && <div className="bg-blue-500 text-white text-center py-1 px-4 rounded-full text-sm font-medium -mx-8 -mt-8 mb-4">Most Popular</div>}
                 <h3 className="text-2xl font-bold text-gray-900 mb-2">{plan.name}</h3>
-                <div className="mb-6">
-                  <span className="text-4xl font-bold text-gray-900">${plan.price}</span>
-                  <span className="text-gray-500">{plan.priceUnit}</span>
-                </div>
-                
+                <div className="mb-6"><span className="text-4xl font-bold text-gray-900">${plan.price}</span><span className="text-gray-500">{plan.priceUnit}</span></div>
                 <ul className="space-y-3 mb-8 flex-grow">
-                  {plan.features.map((feature, index) => (
-                    <li key={index} className="flex items-center text-gray-600">
-                      <span className="text-green-500 mr-2">✓</span>
-                      {feature}
-                    </li>
-                  ))}
+                  {plan.features.map((feature, i) => (<li key={i} className="flex items-center text-gray-600"><span className="text-green-500 mr-2">✓</span>{feature}</li>))}
                 </ul>
-                
-                <button
-                  className={`w-full py-3 rounded-lg font-medium transition-colors ${
-                    plan.isPopular
-                      ? "bg-blue-600 text-white hover:bg-blue-700"
-                      : "bg-gray-900 text-white hover:bg-gray-800"
-                  }`}
-                >
-                  Payment coming soon
-                </button>
+                <div id={`paypal-sub-${plan.id}`} className="min-h-10">
+                  {processingPayment === plan.id ? (
+                    <div className="text-center text-sm text-gray-500">Processing...</div>
+                  ) : null}
+                </div>
               </div>
             ))}
           </div>
         )}
 
-        {/* FAQ 手风琴 */}
         <div className="max-w-2xl mx-auto mb-16">
-          <h3 className="text-2xl font-bold text-gray-900 mb-6 text-center">❓ 常见问题</h3>
-          
+          <h3 className="text-2xl font-bold text-gray-900 mb-6 text-center">❓ FAQ</h3>
           <div className="space-y-3">
-            {faqItems.map((item, index) => (
-              <div key={index} className="bg-white rounded-xl shadow-sm overflow-hidden">
-                <button
-                  onClick={() => toggleFaq(index)}
-                  className="w-full px-6 py-4 text-left flex justify-between items-center"
-                >
+            {FAQ_ITEMS.map((item, i) => (
+              <div key={i} className="bg-white rounded-xl shadow-sm overflow-hidden">
+                <button onClick={() => toggleFaq(i)} className="w-full px-6 py-4 text-left flex justify-between items-center">
                   <span className="font-medium text-gray-900">{item.question}</span>
-                  <span className={`text-gray-500 transition-transform ${openFaq === index ? 'rotate-180' : ''}`}>
-                    ▼
-                  </span>
+                  <span className={`text-gray-500 transition-transform ${openFaq === i ? 'rotate-180' : ''}`}>▼</span>
                 </button>
-                {openFaq === index && (
-                  <div className="px-6 pb-4 text-gray-600">
-                    {item.answer}
-                  </div>
-                )}
+                {openFaq === i && <div className="px-6 pb-4 text-gray-600">{item.answer}</div>}
               </div>
             ))}
           </div>
         </div>
 
-        {/* Try for free */}
         <div className="text-center">
-          <p className="text-gray-600 mb-4">想要先体验一下？</p>
-          <button
-            onClick={() => router.push("/")}
-            className="px-8 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
-          >
-            Try for free
-          </button>
+          <p className="text-gray-600 mb-4">Want to try first?</p>
+          <button onClick={() => router.push("/")} className="px-8 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700">Try for free</button>
         </div>
 
-        {/* 底部说明 */}
         <div className="text-center mt-12 text-gray-500 text-sm">
-          <p>💡 每次去背景 API 调用成本约 $0.01，我们承诺不随意涨价</p>
-          <p className="mt-2">© 2026 Image BG Remover</p>
+          <p>💡 Each background removal API call costs ~$0.01, we promise no sudden price increases</p>
+          <p className="mt-2">© 2026 Image BG Remover · All prices in USD · 🔒 Sandbox</p>
         </div>
       </main>
     </div>
